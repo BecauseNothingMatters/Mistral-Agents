@@ -9,21 +9,29 @@ A dashboard for managing Mistral AI agents with full tool integrations. Built wi
 ├── files/
 │   ├── mistral-fleet-backend/    # Express.js backend server
 │   │   ├── src/                  # Backend source code
-│   │   │   ├── server.js         # Express server entry point
-│   │   │   ├── routes.js         # API routes
-│   │   │   ├── state.js          # Agent state management
-│   │   │   ├── agentRunner.js     # Agent task execution
-│   │   │   ├── mistralClient.js  # Mistral API client
-│   │   │   └── tools.js          # Tool implementations
+│   │   │   ├── agentRunner.js
+│   │   │   ├── mistralClient.js
+│   │   │   ├── routes.js
+│   │   │   ├── state.js
+│   │   │   └── tools.js
+│   │   ├── workspace/           
 │   │   ├── package.json
+│   │   ├── package-lock.json
+│   │   ├── README.md
+│   │   ├── server.js
 │   │   └── .env.example
 │   │
 │   └── mistral-fleet-frontend/   # React frontend
 │       ├── src/
-│       │   └── App.jsx           # Main frontend application
+│       │   └── App.jsx           
+│       │   └── main.jsx          
 │       ├── package.json
+│       ├── package-lock.json
+│       ├── README.md
+│       ├── vite.config.js
 │       └── index.html
-└── README.md                    # This file
+└── README.md                     # This file
+└── LICENCE                       # Licence file
 ```
 
 ## Features
