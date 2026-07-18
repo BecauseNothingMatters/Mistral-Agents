@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Activity, Cpu, Terminal, CheckCircle2, AlertTriangle, Plus, Wrench, Circle, Zap, WifiOff, X, FileText, ChevronDown, ChevronUp, MessageSquare, Send, Trash2 } from "lucide-react";
+import { Activity, Cpu, Terminal, CheckCircle2, AlertTriangle, Plus, Wrench, Circle, Zap, WifiOff, X, FileText, ChevronDown, ChevronUp, MessageSquare, Send, Trash2, Repeat } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8787";
 const POLL_MS = 1500;
@@ -187,12 +187,29 @@ function AgentCard({ agent, pulse, onKill, onChatOpen }) {
 
 function TaskCard({ task, agents, onAssign }) {
   const agent = agents.find((a) => a.id === task.agentId);
+  const hasRepeat = task.repeatInterval && task.repeatInterval !== "none";
+  
   return (
     <div
       className="rounded-md p-3 flex flex-col gap-2"
       style={{ background: "var(--panel-2)", border: "1px solid var(--border)" }}
     >
-      <div className="text-[13px] leading-snug">{task.title}</div>
+      <div className="flex items-start gap-2">
+        <div className="text-[13px] leading-snug flex-1">{task.title}</div>
+        {hasRepeat && (
+          <span
+            className="flex items-center gap-1 fc-mono text-[10px] px-1.5 py-0.5 rounded"
+            style={{
+              background: "var(--panel)",
+              border: "1px solid var(--border)",
+              color: "var(--text-faint)",
+            }}
+            title={`Repeats ${task.repeatInterval || ''}`}
+          >
+            <Repeat size={10} />
+          </span>
+        )}
+      </div>
       {agent ? (
         <div className="fc-mono text-[11px] flex items-center gap-1.5" style={{ color: "var(--text-dim)" }}>
           <Cpu size={11} /> {agent.name}
@@ -616,6 +633,8 @@ export default function App() {
   const [models, setModels] = useState([]);
   const [toolNames, setToolNames] = useState([]);
   const [newTask, setNewTask] = useState("");
+  const [repeatInterval, setRepeatInterval] = useState("none");
+  const [repeatOptions, setRepeatOptions] = useState([]);
   const [connected, setConnected] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [chattingAgent, setChattingAgent] = useState(null);
@@ -659,6 +678,7 @@ export default function App() {
   useEffect(() => {
     fetch(`${API_BASE}/api/models`).then((r) => r.json()).then((d) => setModels(d.models)).catch(() => {});
     fetch(`${API_BASE}/api/tool-names`).then((r) => r.json()).then((d) => setToolNames(d.tools)).catch(() => {});
+    fetch(`${API_BASE}/api/repeat-intervals`).then((r) => r.json()).then((d) => setRepeatOptions(d.intervals)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -759,9 +779,10 @@ export default function App() {
       await fetch(`${API_BASE}/api/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: newTask.trim() }),
+        body: JSON.stringify({ title: newTask.trim(), repeatInterval }),
       });
       setNewTask("");
+      setRepeatInterval("none");
       poll();
     } catch (err) {
       setConnected(false);
@@ -849,7 +870,7 @@ export default function App() {
           >
             <div className="flex items-center justify-between mb-4">
               <span className="fc-mono text-[11px] uppercase tracking-wider" style={{ color: "var(--text-dim)" }}>Task board</span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <input
                   value={newTask}
                   onChange={(e) => setNewTask(e.target.value)}
@@ -858,6 +879,18 @@ export default function App() {
                   className="fc-focus fc-mono text-[12px] rounded px-2.5 py-1.5 bg-transparent w-[180px]"
                   style={{ border: "1px solid var(--border)", color: "var(--text)" }}
                 />
+                <select
+                  value={repeatInterval}
+                  onChange={(e) => setRepeatInterval(e.target.value)}
+                  className="fc-focus fc-mono text-[11px] rounded px-2 py-1.5 bg-transparent"
+                  style={{ border: "1px solid var(--border)", color: "var(--text)" }}
+                >
+                  {Object.entries(repeatOptions).map(([key, label]) => (
+                    <option key={key} value={key} style={{ background: "var(--panel)" }}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
                 <button
                   onClick={addTask}
                   className="fc-focus p-1.5 rounded-md"

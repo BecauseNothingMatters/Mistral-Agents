@@ -19,6 +19,32 @@ export const AVAILABLE_MODELS = [
 // pre-loaded every time the server starts).
 const AGENT_DEFS = [];
 
+// Repeat intervals for tasks (in milliseconds)
+export const REPEAT_INTERVALS = {
+  none: 0,
+  minute: 60 * 1000,
+  hour: 60 * 60 * 1000,
+  twoHours: 2 * 60 * 60 * 1000,
+  sixHours: 6 * 60 * 60 * 1000,
+  twelveHours: 12 * 60 * 60 * 1000,
+  day: 24 * 60 * 60 * 1000,
+  week: 7 * 24 * 60 * 60 * 1000,
+  month: 30 * 24 * 60 * 60 * 1000,
+};
+
+// Human-readable labels for intervals
+export const REPEAT_LABELS = {
+  none: "Don't repeat",
+  minute: "Every minute",
+  hour: "Every hour",
+  twoHours: "Every 2 hours",
+  sixHours: "Every 6 hours",
+  twelveHours: "Every 12 hours",
+  day: "Every day",
+  week: "Every week",
+  month: "Every month",
+};
+
 function makeAgent(def) {
   return {
     id: randomUUID(),
@@ -102,8 +128,15 @@ export function getTasks() {
   return state.tasks;
 }
 
-export function addTask(title) {
-  const task = { id: randomUUID(), title, status: "todo", agentId: null };
+export function addTask(title, repeatInterval = "none") {
+  const task = { 
+    id: randomUUID(), 
+    title, 
+    status: "todo", 
+    agentId: null,
+    repeatInterval,
+    nextRunAt: null
+  };
   state.tasks.push(task);
   return task;
 }
@@ -200,6 +233,77 @@ export function addChatMessage(agentId, role, content) {
 
 export function clearChatHistory(agentId) {
   delete chatHistories[agentId];
+}
+
+// ---------------------------------------------------------------------------
+// Task Scheduling
+// ---------------------------------------------------------------------------
+
+// Schedule a task to be repeated
+let repeatTimer = null;
+
+export function scheduleTaskRepetition() {
+  if (repeatTimer) clearTimeout(repeatTimer);
+  
+  const now = Date.now();
+  const dueTasks = state.tasks.filter(
+    (t) => 
+      t.repeatInterval && 
+      t.repeatInterval !== "none" &&
+      t.status === "done" &&
+      (!t.nextRunAt || t.nextRunAt <= now)
+  );
+  
+  if (dueTasks.length === 0) return;
+  
+  // Find the task with the earliest next run time
+  const nextTask = dueTasks.reduce((earliest, task) => {
+    const nextRun = task.nextRunAt || now;
+    return (!earliest || nextRun < earliest.nextRunAt) ? task : earliest;
+  }, null);
+  
+  if (nextTask) {
+    const delay = nextTask.nextRunAt ? nextTask.nextRunAt - now : 0;
+    repeatTimer = setTimeout(() => {
+      rescheduleTask(nextTask);
+      scheduleTaskRepetition(); // Schedule next repetition
+    }, delay);
+  }
+}
+
+function rescheduleTask(task) {
+  if (task.repeatInterval === "none") return;
+  
+  const interval = REPEAT_INTERVALS[task.repeatInterval];
+  if (!interval) return;
+  
+  // Get the original task output for reference
+  const outputs = state.outputs.filter((o) => o.taskId === task.id);
+  const lastOutput = outputs[outputs.length - 1];
+  
+  // Create a new task with the same title and repeat interval
+  const newTask = {
+    id: randomUUID(),
+    title: `[REPEAT] ${task.title}`,
+    status: "todo",
+    agentId: null,
+    repeatInterval: task.repeatInterval,
+    nextRunAt: Date.now() + interval,
+    originalTaskId: task.id,
+  };
+  
+  state.tasks.push(newTask);
+  pushFeed("system", "running", `Rescheduled: ${task.title}`);
+  
+  // Update the original task to mark it as completed with repetition
+  updateTask(task.id, { status: "done", nextRunAt: Date.now() + interval });
+}
+
+export function startTaskScheduler() {
+  // Check for tasks that should be repeated every minute
+  setInterval(scheduleTaskRepetition, 60000);
+  // Initial check
+  scheduleTaskRepetition();
 }
 
 export default state;

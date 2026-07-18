@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import apiRoutes from "./src/routes.js";
+import { startTaskScheduler } from "./src/state.js";
 
 const app = express();
 const PORT = process.env.PORT || 8787;
@@ -10,6 +11,9 @@ app.use(cors());
 app.use(express.json());
 
 app.use("/api", apiRoutes);
+
+// Start the task scheduler for repeating tasks
+startTaskScheduler();
 
 app.get("/health", (req, res) => res.json({ ok: true }));
 

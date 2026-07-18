@@ -14,6 +14,7 @@ import {
   getChatHistory,
   addChatMessage,
   clearChatHistory,
+  REPEAT_LABELS,
 } from "./state.js";
 import { runTaskOnAgent } from "./agentRunner.js";
 import { runChatWithAgent } from "./agentRunner.js";
@@ -60,6 +61,11 @@ router.get("/tool-names", (req, res) => {
   res.json({ tools: ALL_TOOL_NAMES });
 });
 
+// Lookup data for repeat intervals
+router.get("/repeat-intervals", (req, res) => {
+  res.json({ intervals: REPEAT_LABELS });
+});
+
 // ---- Tasks ------------------------------------------------------------------
 
 router.get("/tasks", (req, res) => {
@@ -67,11 +73,11 @@ router.get("/tasks", (req, res) => {
 });
 
 router.post("/tasks", (req, res) => {
-  const { title } = req.body;
+  const { title, repeatInterval } = req.body;
   if (!title || !title.trim()) {
     return res.status(400).json({ error: "title is required" });
   }
-  const task = addTask(title.trim());
+  const task = addTask(title.trim(), repeatInterval || "none");
   res.status(201).json({ task });
 });
 

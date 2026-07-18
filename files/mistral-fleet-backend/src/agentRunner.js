@@ -1,6 +1,6 @@
 import { chatCompletion } from "./mistralClient.js";
 import { specsForAgent, runTool } from "./tools.js";
-import { updateAgent, updateTask, pushFeed, pushOutput, getAgentById, addChatMessage } from "./state.js";
+import { updateAgent, updateTask, pushFeed, pushOutput, getAgentById, addChatMessage, REPEAT_INTERVALS } from "./state.js";
 
 const MAX_TOOL_ROUNDS = 5;
 
@@ -51,7 +51,13 @@ export async function runTaskOnAgent(agent, task) {
           taskTitle: task.title,
           output: message.content,
         });
-        updateTask(task.id, { status: "done" });
+        
+        // Calculate next run time if this is a repeating task
+        const repeatInterval = task.repeatInterval || "none";
+        const intervalMs = REPEAT_INTERVALS[repeatInterval] || 0;
+        const nextRunAt = intervalMs > 0 ? Date.now() + intervalMs : null;
+        
+        updateTask(task.id, { status: "done", nextRunAt });
         updateAgent(agent.id, {
           state: "idle",
           task: null,
