@@ -11,9 +11,13 @@ import {
   getFeed,
   getOutputs,
   AVAILABLE_MODELS,
+  getChatHistory,
+  addChatMessage,
+  clearChatHistory,
 } from "./state.js";
 import { runTaskOnAgent } from "./agentRunner.js";
-import { ALL_TOOL_NAMES } from "./tools.js";
+import { runChatWithAgent } from "./agentRunner.js";
+import { ALL_TOOL_NAMES, specsForAgent } from "./tools.js";
 
 const router = Router();
 
@@ -108,6 +112,89 @@ router.get("/feed", (req, res) => {
 router.get("/outputs", (req, res) => {
   const { agentId } = req.query;
   res.json({ outputs: getOutputs(agentId) });
+});
+
+// ---- Agent Chat ------------------------------------------------------------
+
+// Get chat history for a specific agent
+router.get("/agents/:agentId/chat", (req, res) => {
+  const { agentId } = req.params;
+  const agent = getAgentById(agentId);
+  if (!agent || agent.dead) {
+    return res.status(404).json({ error: "agent not found" });
+  }
+  res.json({ chatHistory: getChatHistory(agentId) });
+});
+
+// Send a chat message to an agent
+router.post("/agents/:agentId/chat", async (req, res) => {
+  const { agentId } = req.params;
+  const { message } = req.body;
+  
+  if (!message || !message.trim()) {
+    return res.status(400).json({ error: "message is required" });
+  }
+  
+  const agent = getAgentById(agentId);
+  if (!agent || agent.dead) {
+    return res.status(404).json({ error: "agent not found" });
+  }
+  
+  if (agent.state !== "idle") {
+    return res.status(409).json({ error: "agent is busy - wait until current task completes" });
+  }
+  
+  try {
+    // Get existing chat history
+    const chatHistory = getChatHistory(agentId);
+    
+    // Run the chat with the agent
+    const result = await runChatWithAgent(agent, message.trim(), chatHistory);
+    
+    if (!result.ok) {
+      return res.status(500).json({ error: result.error });
+    }
+    
+    // Return the response and updated chat history
+    res.json({
+      ok: true,
+      response: result.response,
+      chatHistory: getChatHistory(agentId),
+      hasMoreTools: result.hasMoreTools,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Clear chat history for an agent
+router.delete("/agents/:agentId/chat", (req, res) => {
+  const { agentId } = req.params;
+  const agent = getAgentById(agentId);
+  if (!agent || agent.dead) {
+    return res.status(404).json({ error: "agent not found" });
+  }
+  clearChatHistory(agentId);
+  res.json({ ok: true });
+});
+
+// Get chat history for all agents (for UI initialization)
+router.get("/chat-history", (req, res) => {
+  const { agentId } = req.query;
+  if (agentId) {
+    res.json({ chatHistory: getChatHistory(agentId) });
+  } else {
+    // Get chat history for all agents
+    const allAgents = getAgents();
+    const allHistory = {};
+    allAgents.forEach((agent) => {
+      const history = getChatHistory(agent.id);
+      if (history.length > 0) {
+        allHistory[agent.id] = history;
+      }
+    });
+    res.json({ chatHistory: allHistory });
+  }
 });
 
 export default router;

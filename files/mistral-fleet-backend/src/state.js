@@ -165,4 +165,41 @@ export function getOutputs(agentId) {
   return agentId ? all.filter((o) => o.agentId === agentId) : all.slice(-100);
 }
 
+// ---------------------------------------------------------------------------
+// Agent Chat History
+// ---------------------------------------------------------------------------
+
+// Chat history per agent: { agentId: [{ role, content, timestamp }, ...] }
+const chatHistories = {};
+
+export function getChatHistory(agentId) {
+  return chatHistories[agentId] || [];
+}
+
+export function addChatMessage(agentId, role, content) {
+  if (!chatHistories[agentId]) {
+    chatHistories[agentId] = [];
+  }
+  
+  const message = {
+    id: randomUUID(),
+    role,
+    content,
+    timestamp: new Date().toISOString(),
+  };
+  
+  chatHistories[agentId].push(message);
+  
+  // Limit chat history to last 100 messages per agent
+  if (chatHistories[agentId].length > 100) {
+    chatHistories[agentId].shift();
+  }
+  
+  return message;
+}
+
+export function clearChatHistory(agentId) {
+  delete chatHistories[agentId];
+}
+
 export default state;

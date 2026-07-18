@@ -1,6 +1,6 @@
 import { chatCompletion } from "./mistralClient.js";
 import { specsForAgent, runTool } from "./tools.js";
-import { updateAgent, updateTask, pushFeed, pushOutput, getAgentById } from "./state.js";
+import { updateAgent, updateTask, pushFeed, pushOutput, getAgentById, addChatMessage } from "./state.js";
 
 const MAX_TOOL_ROUNDS = 5;
 
@@ -104,4 +104,111 @@ export async function runTaskOnAgent(agent, task) {
 function summarizeArgs(args) {
   const s = JSON.stringify(args);
   return s.length > 60 ? s.slice(0, 57) + "..." : s;
+}
+
+/**
+ * Runs a single chat message through an agent without creating a task.
+ * Used for direct conversation with agents via the chat interface.
+ * 
+ * @param {object} agent - The agent to chat with
+ * @param {string} userMessage - The user's message
+ * @param {object[]} chatHistory - Previous chat messages (optional)
+ * @returns {Promise<{ok: boolean, response: string, error?: string}>}
+ */
+export async function runChatWithAgent(agent, userMessage, chatHistory = []) {
+  const tools = specsForAgent(agent.allowedTools);
+
+  // Build messages array with system prompt and chat history
+  const messages = [
+    { role: "system", content: agent.systemPrompt },
+    ...chatHistory,
+    { role: "user", content: userMessage },
+  ];
+
+  // Update agent state to indicate it's thinking
+  updateAgent(agent.id, { state: "running", task: `Chat: ${userMessage.slice(0, 50)}` });
+
+  try {
+    const response = await chatCompletion({ model: agent.model, messages, tools });
+    const choice = response.choices?.[0];
+    const message = choice?.message;
+    const usage = response.usage?.total_tokens ?? 0;
+
+    if (!message) throw new Error("Mistral response had no message");
+
+    // Update token count
+    updateAgent(agent.id, { tokens: agent.tokens + usage });
+
+    const toolCalls = message.tool_calls;
+
+    if (!toolCalls || toolCalls.length === 0) {
+      // Model gave a final answer - no tool calls
+      updateAgent(agent.id, { state: "idle", task: null });
+      
+      // Add to chat history
+      addChatMessage(agent.id, "user", userMessage);
+      addChatMessage(agent.id, "assistant", message.content);
+      
+      return { ok: true, response: message.content };
+    }
+
+    // Model wants to call tools - execute them
+    updateAgent(agent.id, { state: "tool_call" });
+
+    for (const call of toolCalls) {
+      const name = call.function?.name;
+      let args = {};
+      try {
+        args = JSON.parse(call.function?.arguments || "{}");
+      } catch {
+        args = {};
+      }
+
+      const result = await runTool(name, args);
+
+      // Add tool result to messages for model to use
+      messages.push({
+        role: "tool",
+        tool_call_id: call.id,
+        name,
+        content: JSON.stringify(result),
+      });
+
+      // Also add to chat history for user visibility
+      addChatMessage(agent.id, "tool", `Called ${name} with ${JSON.stringify(args).slice(0, 100)}...`);
+      addChatMessage(agent.id, "tool", `Result: ${JSON.stringify(result).slice(0, 200)}...`);
+    }
+
+    // After tools, get the model to reason about the results and give final answer
+    // Make a second call with the tool results
+    const finalResponse = await chatCompletion({ model: agent.model, messages, tools });
+    const finalChoice = finalResponse.choices?.[0];
+    const finalMessage = finalChoice?.message;
+    
+    if (!finalMessage) throw new Error("Mistral response had no final message");
+    
+    const finalUsage = finalResponse.usage?.total_tokens ?? 0;
+    updateAgent(agent.id, { tokens: agent.tokens + finalUsage });
+    
+    // Check again for tool calls (recursive)
+    const finalToolCalls = finalMessage.tool_calls;
+    
+    if (finalToolCalls && finalToolCalls.length > 0) {
+      // Too many tool rounds - return what we have
+      updateAgent(agent.id, { state: "idle", task: null });
+      addChatMessage(agent.id, "assistant", `I need to call more tools but hit the limit. Partial response: ${finalMessage.content || ""}`);
+      return { ok: true, response: finalMessage.content || "", hasMoreTools: true };
+    }
+
+    // Final answer
+    updateAgent(agent.id, { state: "idle", task: null });
+    addChatMessage(agent.id, "assistant", finalMessage.content);
+    
+    return { ok: true, response: finalMessage.content };
+    
+  } catch (err) {
+    updateAgent(agent.id, { state: "error", task: null });
+    addChatMessage(agent.id, "assistant", `Error: ${err.message}`);
+    return { ok: false, response: null, error: err.message };
+  }
 }

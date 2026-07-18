@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Activity, Cpu, Terminal, CheckCircle2, AlertTriangle, Plus, Wrench, Circle, Zap, WifiOff, X, FileText, ChevronDown, ChevronUp } from "lucide-react";
+import { Activity, Cpu, Terminal, CheckCircle2, AlertTriangle, Plus, Wrench, Circle, Zap, WifiOff, X, FileText, ChevronDown, ChevronUp, MessageSquare, Send, Trash2 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8787";
 const POLL_MS = 1500;
@@ -131,34 +131,44 @@ function StateBadge({ state }) {
   );
 }
 
-function AgentCard({ agent, pulse, onKill }) {
+function AgentCard({ agent, pulse, onKill, onChatOpen }) {
   const meta = STATE_META[agent.state] || STATE_META.idle;
   return (
     <div
       className="rounded-lg p-4 flex flex-col gap-3 min-w-[240px] group relative"
       style={{ background: "var(--panel)", border: "1px solid var(--border)" }}
     >
-      <button
-        onClick={() => onKill(agent)}
-        className="fc-focus absolute top-2.5 right-2.5 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-        style={{ color: "var(--text-faint)" }}
-        title={`Kill ${agent.name}`}
-        aria-label={`Kill ${agent.name}`}
-      >
-        <X size={13} />
-      </button>
+      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={() => onChatOpen(agent)}
+          className="fc-focus p-1 rounded"
+          style={{ color: "var(--text-dim)", background: "var(--panel-2)" }}
+          title={`Chat with ${agent.name}`}
+          aria-label={`Chat with ${agent.name}`}
+        >
+          <MessageSquare size={14} />
+        </button>
+        <button
+          onClick={() => onKill(agent)}
+          className="fc-focus p-1 rounded"
+          style={{ color: "var(--text-faint)", background: "var(--panel-2)" }}
+          title={`Kill ${agent.name}`}
+          aria-label={`Kill ${agent.name}`}
+        >
+          <X size={14} />
+        </button>
+      </div>
 
-      <div className="flex items-start justify-between pr-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <Cpu size={14} style={{ color: "var(--text-dim)" }} />
-            <span className="font-semibold tracking-tight">{agent.name}</span>
-          </div>
-          <div className="fc-mono text-[11px] mt-1" style={{ color: "var(--text-dim)" }}>
-            {agent.model}
-          </div>
+      <div className="flex items-start justify-between pr-6">
+        <div className="flex items-center gap-2">
+          <Cpu size={14} style={{ color: "var(--text-dim)" }} />
+          <span className="font-semibold tracking-tight">{agent.name}</span>
         </div>
         <StateBadge state={agent.state} />
+      </div>
+
+      <div className="fc-mono text-[11px]" style={{ color: "var(--text-dim)" }}>
+        {agent.model}
       </div>
 
       <Pulse values={pulse} color={meta.color} />
@@ -387,6 +397,215 @@ function CreateAgentPanel({ models, toolNames, onCreate, onClose }) {
 }
 
 // ---------------------------------------------------------------------------
+// Chat Panel Component
+// ---------------------------------------------------------------------------
+function ChatPanel({ agent, chatHistory, onClose, onSendMessage }) {
+  const [message, setMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [localHistory, setLocalHistory] = useState(chatHistory || []);
+  const messagesEndRef = useRef(null);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [localHistory]);
+
+  // Initialize from prop on mount
+  useEffect(() => {
+    setLocalHistory(chatHistory || []);
+  }, []); // Empty dependency array - only runs on mount
+
+  const [error, setError] = useState(null);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!message.trim() || isLoading) return;
+    
+    const messageToSend = message.trim();
+    setIsLoading(true);
+    setError(null);
+    setMessage("");
+    
+    // Optimistically add user message
+    const newUserMessage = {
+      id: `temp-${Date.now()}`,
+      role: "user",
+      content: messageToSend,
+    };
+    setLocalHistory((prev) => [...prev, newUserMessage]);
+    
+    try {
+      const result = await onSendMessage(agent.id, messageToSend);
+      // Replace with backend's full history (includes assistant response)
+      if (result?.chatHistory) {
+        setLocalHistory(result.chatHistory);
+      }
+    } catch (err) {
+      console.error("Error sending message:", err);
+      setError(err.message || "Failed to send message");
+      // On error, keep the optimistic message so user sees what they sent
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const hasMessages = localHistory?.length > 0;
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className="flex flex-col h-[80vh] max-h-[600px] w-full max-w-2xl rounded-lg"
+        style={{ background: "var(--panel)", border: "1px solid var(--border)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between p-4 border-b"
+          style={{ borderColor: "var(--border)" }}
+        >
+          <div className="flex items-center gap-3">
+            <Cpu size={18} style={{ color: "var(--text-dim)" }} />
+            <span className="font-semibold tracking-tight">{agent?.name}</span>
+            <span
+              className="fc-mono text-[11px] px-2 py-0.5 rounded"
+              style={{
+                background: "var(--panel-2)",
+                color: "var(--text-faint)",
+              }}
+            >
+              {agent?.model}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                if (window.confirm(`Clear chat history with ${agent?.name}?`)) {
+                  fetch(`${API_BASE}/api/agents/${agent?.id}/chat`, { method: "DELETE" })
+                    .then(() => onClose())
+                    .catch(console.error);
+                }
+              }}
+              className="fc-focus p-1.5 rounded"
+              style={{ color: "var(--text-faint)" }}
+              title="Clear chat"
+            >
+              <Trash2 size={16} />
+            </button>
+            <button
+              onClick={onClose}
+              className="fc-focus p-1.5 rounded"
+              style={{ color: "var(--text-faint)" }}
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {hasMessages ? (
+            localHistory.map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={`max-w-[80%] rounded-lg px-4 py-2.5 fc-mono text-[13px] leading-relaxed whitespace-pre-wrap`}
+                  style={{
+                    background:
+                      msg.role === "user"
+                        ? "var(--primary)"
+                        : msg.role === "assistant"
+                        ? "var(--panel-2)"
+                        : "var(--cream)",
+                    color:
+                      msg.role === "user"
+                        ? "var(--canvas)"
+                        : msg.role === "tool"
+                        ? "var(--text-dim)"
+                        : "var(--text)",
+                    border:
+                      msg.role === "tool"
+                        ? "1px solid var(--border)"
+                        : "none",
+                  }}
+                >
+                  {msg.role === "tool" ? (
+                    <span className="text-[11px] opacity-70">
+                      {msg.content}
+                    </span>
+                  ) : (
+                    msg.content
+                  )}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div
+              className="flex flex-col items-center justify-center h-full text-center"
+              style={{ color: "var(--text-faint)" }}
+            >
+              <MessageSquare size={40} className="opacity-50 mb-3" />
+              <p className="fc-mono text-[12px]">Start a conversation with {agent?.name}</p>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Error message */}
+        {error && (
+          <div className="px-4 pb-2 text-[12px]" style={{ color: "var(--red)" }}>
+            {error}
+          </div>
+        )}
+        
+        {/* Input */}
+        <form onSubmit={handleSubmit} className="p-4 border-t" style={{ borderColor: "var(--border)" }}>
+          <div className="flex items-end gap-2">
+            <input
+              type="text"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder={`Message ${agent?.name}...`}
+              disabled={isLoading || !agent}
+              className="flex-1 fc-mono text-[13px] px-3 py-2.5 rounded-md"
+              style={{
+                background: "var(--panel-2)",
+                border: "1px solid var(--border)",
+                color: "var(--text)",
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  handleSubmit(e);
+                }
+              }}
+            />
+            <button
+              type="submit"
+              disabled={isLoading || !message.trim()}
+              className="fc-focus p-2.5 rounded-full"
+              style={{
+                background: message.trim() ? "var(--primary)" : "var(--panel-2)",
+                color: message.trim() ? "var(--canvas)" : "var(--text-faint)",
+              }}
+            >
+              {isLoading ? (
+                <Activity size={16} className="animate-spin" />
+              ) : (
+                <Send size={16} />
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main app
 // ---------------------------------------------------------------------------
 export default function App() {
@@ -399,6 +618,7 @@ export default function App() {
   const [newTask, setNewTask] = useState("");
   const [connected, setConnected] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [chattingAgent, setChattingAgent] = useState(null);
   const feedRef = useRef(null);
   const prevTokens = useRef({}); // agentId -> last seen token count
   const pulses = useRef({}); // agentId -> ring buffer of recent token deltas
@@ -485,6 +705,54 @@ export default function App() {
     }
   };
 
+  const sendChatMessage = async (agentId, message) => {
+    try {
+      const response = await fetch(`${API_BASE}/api/agents/${agentId}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to send message");
+      }
+      
+      const data = await response.json();
+      
+      // Update the chatting agent with new history
+      setChattingAgent((prev) => prev?.id === agentId ? {
+        ...prev,
+        chatHistory: data.chatHistory,
+      } : prev);
+      
+      // Trigger a poll to update agent state
+      poll();
+      
+      return data;
+    } catch (err) {
+      console.error("Error sending chat message:", err);
+      throw err;
+    }
+  };
+
+  const closeChat = () => {
+    setChattingAgent(null);
+  };
+
+  const openChat = async (agent) => {
+    try {
+      const response = await fetch(`${API_BASE}/api/agents/${agent.id}/chat`);
+      if (!response.ok) throw new Error("Failed to load chat history");
+      const data = await response.json();
+      setChattingAgent({ ...agent, chatHistory: data.chatHistory });
+    } catch (err) {
+      console.error("Error opening chat:", err);
+      // Open chat anyway, just without history
+      setChattingAgent({ ...agent, chatHistory: [] });
+    }
+  };
+
   const addTask = async () => {
     if (!newTask.trim()) return;
     try {
@@ -562,7 +830,15 @@ export default function App() {
               {connected ? "No agents returned by the backend yet." : "Waiting for backend at " + API_BASE}
             </div>
           )}
-          {agents.map((a) => <AgentCard key={a.id} agent={a} pulse={pulses.current[a.id]} onKill={killAgent} />)}
+          {agents.map((a) => (
+            <AgentCard
+              key={a.id}
+              agent={a}
+              pulse={pulses.current[a.id]}
+              onKill={killAgent}
+              onChatOpen={openChat}
+            />
+          ))}
         </div>
 
         {/* Kanban + Feed */}
@@ -636,6 +912,17 @@ export default function App() {
           </div>
         </div>
       </div>
+      
+      {/* Chat Panel Modal */}
+      {chattingAgent && (
+        <ChatPanel
+          key={`chat-${chattingAgent.id}`}
+          agent={chattingAgent}
+          chatHistory={chattingAgent.chatHistory || []}
+          onClose={closeChat}
+          onSendMessage={sendChatMessage}
+        />
+      )}
     </div>
   );
 }
